@@ -136,15 +136,15 @@ impl<F: FieldExt> Composer<F> for CustomChip<F> {
                 )?;
                 let rhs = region.assign_advice(
                     || "rhs",
-                    self.config.l,
+                    self.config.r,
                     0,
-                    || values.unwrap().map(|v| v.0),
+                    || values.unwrap().map(|v| v.1),
                 )?;
                 let out = region.assign_advice(
                     || "out",
-                    self.config.l,
+                    self.config.o,
                     0,
-                    || values.unwrap().map(|v| v.0),
+                    || values.unwrap().map(|v| v.2),
                 )?;
 
                 region.assign_fixed(|| "l", self.config.sl, 0, || Value::known(F::one()))?;
@@ -297,15 +297,8 @@ fn main() {
         y: Value::known(y),
         constant: constant,
     };
-    println!("llego1");
     let mut public_inputs = vec![constant, z];
 
     let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
-    let result = prover.verify();
-    match result {
-        Err(x) => println!("error"),
-        Ok(y) => println!("bien"),
-    }
     assert_eq!(prover.verify(), Ok(()));
-    println!("llego3");
 }
