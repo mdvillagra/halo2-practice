@@ -1,15 +1,19 @@
 use halo2_proofs::circuit::Value;
+use halo2_proofs::dev::MockProver;
+use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Cell, Chip, Layouter, SimpleFloorPlanner},
     plonk::{Advice, Assigned, Circuit, Column, ConstraintSystem, Error, Fixed, Instance},
     poly::Rotation,
 };
+
 use std::default;
 use std::marker::PhantomData;
 
 /// Configuration of columns
 /// l*sl + r*sr + (l*r)*sm - o*so + sc + PI = 0
+#[derive(Debug, Clone)]
 struct CustomConfig {
     l: Column<Advice>,
     r: Column<Advice>,
@@ -179,7 +183,7 @@ struct SampleCircuit<F: FieldExt> {
     constant: F,
 }
 
-impl<F: FieldExt> Circuit for SampleCircuit<F> {
+impl<F: FieldExt> Circuit<F> for SampleCircuit<F> {
     type Config = CustomConfig;
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -212,19 +216,19 @@ impl<F: FieldExt> Circuit for SampleCircuit<F> {
             let r = meta.query_advice(r, Rotation::cur());
             let o = meta.query_advice(o, Rotation::cur());
 
-            let sl = meta.query_advice(sl, Rotation::cur());
-            let sr = meta.query_advice(sr, Rotation::cur());
-            let so = meta.query_advice(so, Rotation::cur());
-            let sm = meta.query_advice(sm, Rotation::cur());
-            let sc = meta.query_advice(sc, Rotation::cur());
+            let sl = meta.query_fixed(sl, Rotation::cur());
+            let sr = meta.query_fixed(sr, Rotation::cur());
+            let so = meta.query_fixed(so, Rotation::cur());
+            let sm = meta.query_fixed(sm, Rotation::cur());
+            let sc = meta.query_fixed(sc, Rotation::cur());
 
             vec![l.clone() * sl + r.clone() * sr + l * r * sm + (o * so * (-F::one())) + sc]
         });
 
         meta.create_gate("public input", |meta| {
-            let l = meta.query_fixed(l, Rotation::cur());
+            let l = meta.query_advice(l, Rotation::cur());
             #[allow(non_snake_case)]
-            let PI = meta.query_fixed(PI, Rotation::cur());
+            let PI = meta.query_instance(PI, Rotation::cur());
             let sp = meta.query_fixed(sp, Rotation::cur());
 
             vec![sp * (l - PI)]
@@ -243,18 +247,65 @@ impl<F: FieldExt> Circuit for SampleCircuit<F> {
         }
     }
 
-    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
         let cs = CustomChip::new(config);
 
-        let x = self.x.into();
-        let y = self.y.into();
+        let x: Value<Assigned<_>> = self.x.into();
+        let y: Value<Assigned<_>> = self.y.into();
         let consty = Assigned::from(self.constant);
 
         let (a0, b0, c0) = cs.raw_multiply(&mut layouter, || x.map(|x| (x, x, x * x)))?;
-        cs.copy(&mut layouter, a0, b0)
+        cs.copy(&mut layouter, a0, b0)?;
+
+        let (a1, b1, c1) = cs.raw_multiply(&mut layouter, || y.map(|y| (y, y, y * y)))?;
+        cs.copy(&mut layouter, a1, b1)?;
+
+        let (a2, b2, c2) = cs.raw_multiply(&mut layouter, || {
+            x.zip(y).map(|(x, y)| (x * x, y * y, x * x * y * y))
+        })?;
+        cs.copy(&mut layouter, a2, c0)?;
+        cs.copy(&mut layouter, b2, c1)?;
+
+        let (a3, b3, c3) = cs.raw_add(&mut layouter, || {
+            x.zip(y)
+                .map(|(x, y)| (x * x * y * y, consty, x * x * y * y + consty))
+        })?;
+        cs.copy(&mut layouter, a3, c2)?;
+
+        cs.expose_public(&mut layouter, b3, 0)?;
+
+        layouter.constrain_instance(c3, cs.config.PI, 1)?;
+
+        Ok(())
     }
 }
 
 fn main() {
-    println!("Hello, world!");
+    let k = 4;
+
+    let constant = Fp::from(7);
+    let x = Fp::from(5);
+    let y = Fp::from(9);
+    let z = Fp::from(25 * 81 + 7);
+
+    let circuit = SampleCircuit {
+        x: Value::known(x),
+        y: Value::known(y),
+        constant: constant,
+    };
+    println!("llego1");
+    let mut public_inputs = vec![constant, z];
+
+    let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
+    let result = prover.verify();
+    match result {
+        Err(x) => println!("error"),
+        Ok(y) => println!("bien"),
+    }
+    assert_eq!(prover.verify(), Ok(()));
+    println!("llego3");
 }
