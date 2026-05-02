@@ -3,12 +3,11 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr as Fp;
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Cell, Chip, Layouter, SimpleFloorPlanner},
+    circuit::{Cell, Layouter, SimpleFloorPlanner},
     plonk::{Advice, Assigned, Circuit, Column, ConstraintSystem, Error, Fixed, Instance},
     poly::Rotation,
 };
 
-use std::default;
 use std::marker::PhantomData;
 
 /// Configuration of columns
@@ -23,9 +22,8 @@ struct CustomConfig {
     sr: Column<Fixed>,
     so: Column<Fixed>,
     sm: Column<Fixed>,
-    sc: Column<Fixed>,
 
-    PI: Column<Instance>,
+    pi: Column<Instance>,
 }
 
 struct CustomChip<F: FieldExt> {
@@ -172,7 +170,7 @@ impl<F: FieldExt> Composer<F> for CustomChip<F> {
         cell: Cell,
         row: usize,
     ) -> Result<(), Error> {
-        layouter.constrain_instance(cell, self.config.PI, row)
+        layouter.constrain_instance(cell, self.config.pi, row)
     }
 }
 
@@ -207,9 +205,8 @@ impl<F: FieldExt> Circuit<F> for SampleCircuit<F> {
         let sc = meta.fixed_column();
         let sp = meta.fixed_column();
 
-        #[allow(non_snake_case)]
-        let PI = meta.instance_column();
-        meta.enable_equality(PI);
+        let pi = meta.instance_column();
+        meta.enable_equality(pi);
 
         meta.create_gate("mini plonk", |meta| {
             let l = meta.query_advice(l, Rotation::cur());
@@ -227,11 +224,10 @@ impl<F: FieldExt> Circuit<F> for SampleCircuit<F> {
 
         meta.create_gate("public input", |meta| {
             let l = meta.query_advice(l, Rotation::cur());
-            #[allow(non_snake_case)]
-            let PI = meta.query_instance(PI, Rotation::cur());
+            let pi = meta.query_instance(pi, Rotation::cur());
             let sp = meta.query_fixed(sp, Rotation::cur());
 
-            vec![sp * (l - PI)]
+            vec![sp * (l - pi)]
         });
 
         CustomConfig {
@@ -242,8 +238,7 @@ impl<F: FieldExt> Circuit<F> for SampleCircuit<F> {
             sr,
             so,
             sm,
-            sc,
-            PI,
+            pi,
         }
     }
 
@@ -278,7 +273,7 @@ impl<F: FieldExt> Circuit<F> for SampleCircuit<F> {
 
         cs.expose_public(&mut layouter, b3, 0)?;
 
-        layouter.constrain_instance(c3, cs.config.PI, 1)?;
+        layouter.constrain_instance(c3, cs.config.pi, 1)?;
 
         Ok(())
     }
@@ -297,7 +292,7 @@ fn main() {
         y: Value::known(y),
         constant: constant,
     };
-    let mut public_inputs = vec![constant, z];
+    let public_inputs = vec![constant, z];
 
     let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
